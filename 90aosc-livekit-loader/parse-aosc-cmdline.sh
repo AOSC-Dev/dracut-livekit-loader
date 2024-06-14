@@ -50,7 +50,7 @@ case "$liveroot" in
 		rootok=1
 		;;
 	CDLABEL=*)
-		cdlabel="$(echo "$liveroot" | sed 's,/,\\x2f,g;s, ,\\x20,g')"
+		cdlabel="$(echo "${liveroot##CDLABEL=}" | sed 's,/,\\x2f,g;s, ,\\x20,g')"
 		root="aosc-livekit:/dev/disk/by-label/$cdlabel"
 		rootok=1
 		;;
