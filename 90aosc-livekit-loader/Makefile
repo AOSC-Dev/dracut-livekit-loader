@@ -1,6 +1,7 @@
 EXEC_FILES = livekit-mount-layers.sh \
 	module-setup.sh \
-	parse-aosc-cmdline.sh
+	parse-aosc-cmdline.sh \
+	aosc-livekit-gen-rules.sh
 
 OTHER_FILES =
 
