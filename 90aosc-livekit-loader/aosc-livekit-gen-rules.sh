@@ -13,16 +13,16 @@ fi
 case "$aoscroot" in
 	/dev/*)
 		{
-			printf 'KERNEL=="%s", RUN+="/sbin/initqueue --settled --onetime --unique /sbin/dmsquash-live-root %s"\n' \
+			printf 'KERNEL=="%s", RUN+="/sbin/initqueue --settled --onetime --unique /sbin/livekit-mount-layers %s"\n' \
 				"${aoscroot##/dev/}" "$aoscroot"
-			printf 'SYMLINK=="%s", RUN+="/sbin/initqueue --settled --onetime --unique /sbin/dmsquash-live-root %s"\n' \
+			printf 'SYMLINK=="%s", RUN+="/sbin/initqueue --settled --onetime --unique /sbin/livekit-mount-layers %s"\n' \
 				"${aoscroot##/dev/}" "$aoscroot"
 		} >> /etc/udev/rules.d/99-live-squash.rules
 		wait_for_dev -n "$aoscroot"
 		;;
 	*)
 		if [ -f "$aoscroot" ]; then
-			/sbin/initqueue --settled --onetime --unique /sbin/dmsquash-live-root "${aoscroot}"
+			/sbin/initqueue --settled --onetime --unique /sbin/livekit-mount-layers "${aoscroot}"
 		fi
 		;;
 esac
