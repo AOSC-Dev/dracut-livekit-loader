@@ -10,7 +10,10 @@ DRACUT_MODULES = $(PREFIX)/lib/dracut/modules.d
 
 export TOP MODULE DESTDIR PREFIX DRACUT_MODULES
 
-.PHONY: install
+.PHONY: install initrd-image
 
 install:
 	$(MAKE) -C $(MODULE) install
+
+initrd-image: install
+	sudo dracut --force $(INITRD) --add="aosc-livekit-loader"
