@@ -2,6 +2,7 @@
 
 set -e
 
+# Prints warning, information and mount calls to kernel log and stdout
 mount() {
 	echo -e "\033[1;35mMOUNT\033[0m $@"
 	/usr/bin/mount "$@"
@@ -18,6 +19,12 @@ w() {
 }
 
 calc_tmpfs_size() {
+	# Calculate the size of the tmpfs dedicated for LiveKit.
+	# For RAM size > 16GB, it uses 3/4 of available RAM.
+	# For RAM between 8 - 16GB, it uses 1/2 of available RAM.
+	# Otherwise 4GB is provisioned.
+	# NOTE it won't use exactly the allocated amount. The actual usage
+	# is how much files in it.
 	local finalsize ramsize raminmib
 	if [ -e /proc/meminfo ] ; then
 		ramsize=$(cat /proc/meminfo | head -n 1 | awk '{ print $2 }')
@@ -43,6 +50,16 @@ calc_tmpfs_size() {
 }
 
 read_boot_target() {
+	# Read the boot target from kernel command line.
+	# The command line is:
+	# livekit.boot=target
+	# The target is one of the following:
+	# - livekit: boots to the LiveKit environment
+	# - desktop: boots to the desktop environment, allows users to try
+	#   AOSC OS before installing.
+	# - desktop-nvidia: same as above, but with NVIDIA graphics support.
+	# Base and server are not meant to be booted live. They must be
+	# correctly installed.
 	local boot_target
 	for arg in $(cat /proc/cmdline) ; do
 		if [[ "x$arg" = xlivekit.boot=* ]] ; then
@@ -62,6 +79,7 @@ read_boot_target() {
 }
 
 get_squashfs_opt() {
+	# Decides how many decompression threads squashfs will use.
 	local opt nr_cpus bc_prgm thrs
 	nr_cpus=$(nproc)
 	bc_prgm="n=$nr_cpus;(n+1)/2"
@@ -71,6 +89,7 @@ get_squashfs_opt() {
 }
 
 gen_mount_opts() {
+	# Generate lowerdirs according to layer dependencies
 	local tgt opts var arr lowerdirs
 	tgt=$1
 	opts=""
@@ -108,6 +127,27 @@ if [ ! -e "$1" ] ; then
 	exit 1
 fi
 
+# Layers configuration
+# The name of overlays. It is read from a config file, or a default value
+# will be used if no config file is found.
+# Base layer is always excluded.
+LAYERS=()
+# Sysroots to be combined.
+SYSROOT_LAYERS=()
+# Sysroot dependencies, i.e. which layers will be merged into the sysroot.
+# NOTE that a layer with the name of the sysroot must present, but can not
+# be specified as a dependency.
+# NOTE only dashes are allowed in the name of layers and sysroot layers,
+# apart from alphabets and digits - they must be a valid Bash identifier.
+# NOTE base layer must be specified.
+LAYER_DEP_layer_name=()
+# EXAMPLE
+# LAYERS=("desktop" "server")
+# SYSROOTS=("desktop" "server")
+# LAYER_DEP_desktop=("base") # desktop needs base and desktop itself
+# LAYER_DEP_server=("base")
+
+# Mount points and predefined paths
 # Device containing LiveKit.
 LIVEKIT_DEV="$1"
 # Prefix path of everything related to LiveKit.
@@ -204,24 +244,27 @@ i "Sysroots are set up successfully."
 target=$(read_boot_target)
 
 i "Booting into $target ..."
+# /sysroot will be the target filesystem dracut switches to.
 # If we have a pre-configured template layer, mount it to sysroot.
 if [ -e "$TEMPLATESDIR"/"$target".squashfs ] || true ; then
-	i "Setting up live environment templates ..."
-	# This template is read-write in order to make the system function
-	# normally.
+	i "Setting up live environment template ..."
+	# Mount the template layer, and make a overlay filesystem with the
+	# template on top of the boot target sysroot, and make it read-write
+	# by specifying an read-write upperdir.
 	mount -t squashfs -o "$SQUASHFSOPT" "$TEMPLATESDIR"/"$target".squashfs "$TEMPLATEMNTDIR"
 	mount -t overlay live-sysroot:$target \
 		-o lowerdir="$TEMPLATEMNTDIR":"$SYSROOTSDIR"/$target,upperdir="$SYSROOT_UPPERDIR",workdir="$SYSROOT_WORKDIR",redirect_dir=on \
 		/sysroot
 else
-	i "Bind mounting target sysroot to /sysroot ..."
+	i "Mounting target sysroot to /sysroot without a template ..."
+	# In case of not having a template, we create a read-write overlay of
+	# the boot target sysroot (same as above, use a rw upperdir), then
+	# mount it to /sysroot.
 	mount -t overlay live-sysroot:$target \
 		-o lowerdir="$SYSROOTSDIR"/$target,upperdir="$SYSROOT_UPPERDIR",workdir="$SYSROOT_WORKDIR",redirect_dir=on \
 		/sysroot
-	# Or, bind mount the target to /sysroot.
-	mount --bind "$SYSROOTSDIR"/$target /sysroot
 fi
 
 i "Finishing up ..."
-# Inform dracut that root is set up.
+# Inform dracut that the target root filesystem is set up.
 ln -s /dev/null /dev/root
