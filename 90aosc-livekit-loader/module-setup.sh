@@ -11,7 +11,7 @@ depends() {
 }
 
 install() {
-	inst_multiple dmsetup umount mount dd losetup find mkdir rmdir tee less realpath
+	inst_multiple dmsetup umount mount dd losetup find mkdir rmdir tee less realpath bc head awk grep cut nproc
 	inst_hook cmdline 30 "$moddir"/parse-aosc-cmdline.sh
 	inst_hook pre-udev 30 "$moddir"/aosc-livekit-gen-rules.sh
 	inst_script "$moddir"/livekit-mount-layers.sh /sbin/livekit-mount-layers
