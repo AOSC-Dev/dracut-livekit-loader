@@ -246,7 +246,7 @@ target=$(read_boot_target)
 i "Booting into $target ..."
 # /sysroot will be the target filesystem dracut switches to.
 # If we have a pre-configured template layer, mount it to sysroot.
-if [ -e "$TEMPLATESDIR"/"$target".squashfs ] || true ; then
+if [ -e "$TEMPLATESDIR"/"$target".squashfs ] ; then
 	i "Setting up live environment template ..."
 	# Mount the template layer, and make a overlay filesystem with the
 	# template on top of the boot target sysroot, and make it read-write
