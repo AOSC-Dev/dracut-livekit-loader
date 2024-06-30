@@ -18,6 +18,12 @@ w() {
 	echo -e "\033[1;37m[\033[1;33mWARN\033[1;37m]: $@\033[0m"
 }
 
+die() {
+	echo "<28>LiveKit: ERROR: $@" > /dev/kmsg
+	echo -e "\033[1;37m[\033[1;31mERROR\033[1;37m]: $@\033[0m"
+	systemctl start dracut-emergency.service
+}
+
 calc_tmpfs_size() {
 	# Calculate the size of the tmpfs dedicated for LiveKit.
 	# For RAM size > 16GB, it uses 3/4 of available RAM.
@@ -60,22 +66,25 @@ read_boot_target() {
 	# - desktop-nvidia: same as above, but with NVIDIA graphics support.
 	# Base and server are not meant to be booted live. They must be
 	# correctly installed.
+	# This function can only be called after the sysroots are mounted.
+	# The target sysroot must have a /etc/os-release, otherwise it will
+	# fail.
 	local boot_target
 	for arg in $(cat /proc/cmdline) ; do
 		if [[ "x$arg" = xlivekit.boot=* ]] ; then
 			boot_target=${arg##livekit.boot=}
 		fi
 	done
-	case $boot_target in
-		desktop|desktop-nvidia|livekit)
-			echo $boot_target
-			return
-			;;
-		*)
-			echo "livekit"
-			return
-			;;
-	esac
+	if [ "x$boot_target" = "x" ] ; then
+		boot_target="$DEFAULT_BOOT_TARGET"
+	fi
+	if [ "x$boot_target" = "x" ] ; then
+		boot_target="livekit"
+	fi
+	if ! [ -d "$SYSROOTSDIR/$boot_target" ] || ! [ -e "$SYSROOTSDIR/$boot_target/etc/os-release" ] ; then
+		die "Specified boot target $boot_target is either not mounted or not a full sysroot."
+	fi
+	echo "$boot_target"
 }
 
 get_squashfs_opt() {
@@ -93,14 +102,13 @@ gen_mount_opts() {
 	local tgt opts var arr lowerdirs
 	tgt=$1
 	opts=""
-	needsupper=0
-	# LAYER_DEP_desktop=("base" "desktop-common")
-	# LAYER_DEP_desktop_nvidia=("base" "desktop-common" "desktop")
-	# LAYER_DEP_livekit=("base" "desktop-common" "livekit")
-	# LAYER_DEP_server=("base" "server")
+	# SYSROOT_DEP_desktop=("base" "desktop-common" "desktop")
+	# SYSROOT_DEP_desktop_nvidia=("base" "desktop-common" "desktop" "desktop-nvidia")
+	# SYSROOT_DEP_livekit=("base" "desktop-common" "livekit")
+	# SYSROOT_DEP_server=("base" "server")
 	# like that.
 	# The layers must be mounted prior calling this function.
-	var="LAYER_DEP_${tgt/-/_}[@]"
+	var="SYSROOT_DEP_${tgt/-/_}[@]"
 	arr=(${!var})
 	if [ "${#arr[@]}" -lt "1" ] ; then
 		die "Missing layer configuration!"
@@ -110,7 +118,6 @@ gen_mount_opts() {
 	for layer in ${!var} ; do
 		lowerdirs="${LAYERSMNTDIR}/${layer}:${lowerdirs}"
 	done
-	lowerdirs="${LAYERSMNTDIR}/${tgt}:${lowerdirs}"
 	lowerdirs=${lowerdirs%%:}
 	opts="${opts}${lowerdirs}"
 	opts="${opts},redirect_dir=on"
@@ -135,17 +142,16 @@ LAYERS=()
 # Sysroots to be combined.
 SYSROOT_LAYERS=()
 # Sysroot dependencies, i.e. which layers will be merged into the sysroot.
-# NOTE that a layer with the name of the sysroot must present, but can not
-# be specified as a dependency.
 # NOTE only dashes are allowed in the name of layers and sysroot layers,
 # apart from alphabets and digits - they must be a valid Bash identifier.
 # NOTE base layer must be specified.
-LAYER_DEP_layer_name=()
+# NOTE the last layer of the sysroot must be specified.
+SYSROOT_DEP_sysroot_name=()
 # EXAMPLE
 # LAYERS=("desktop" "server")
 # SYSROOTS=("desktop" "server")
-# LAYER_DEP_desktop=("base") # desktop needs base and desktop itself
-# LAYER_DEP_server=("base")
+# SYSROOT_DEP_desktop=("base" "desktop") # desktop needs base and desktop itself
+# SYSROOT_DEP_server=("base" "server")
 
 # Mount points and predefined paths
 # Device containing LiveKit.
@@ -208,10 +214,10 @@ else
 	w "No layers.conf detected. Using default configuration."
 	LAYERS=("desktop-common" "desktop" "desktop-nvidia" "livekit" "server")
 	SYSROOT_LAYERS=("desktop" "desktop-nvidia" "livekit" "server")
-	LAYER_DEP_desktop=("base" "desktop-common")
-	LAYER_DEP_livekit=("base" "desktop-common")
-	LAYER_DEP_desktop_nvidia=("base" "desktop-common" "desktop")
-	LAYER_DEP_server=("base")
+	SYSROOT_DEP_desktop=("base" "desktop-common" "desktop")
+	SYSROOT_DEP_livekit=("base" "desktop-common" "livekit")
+	SYSROOT_DEP_desktop_nvidia=("base" "desktop-common" "desktop" "desktop-nvidia")
+	SYSROOT_DEP_server=("base" "server")
 fi
 
 i "Mounting base sysroot ..."
@@ -238,15 +244,24 @@ done
 
 i "Sysroots are set up successfully."
 
-# Read the target environment to boot into from kernel command line:
-# livekit.boot=(desktop|desktop-nvidia|livekit)
-# Anything else or empty value will default to livekit.
+# Read the target environment to boot into from kernel command line.
+# The allowed values are name of mounted sysroots.
 target=$(read_boot_target)
-
+# Allow the loader.conf to load custom template file.
+var="TEMPLATE_${target/-/_}"
+tgt_template=${!var}
+templatefile=
+if [ -f "$TEMPLATESDIR/$tgt_template" ] ; then
+	i "Using supplied template file $tgt_template for boot target $tgt."
+	templatefile="$TEMPLATESDIR/$tgt_template"
+else
+	i "Using default template file for boot target $tgt."
+	templatefile="$TEMPLATESDIR/$target.squashfs"
+fi
 i "Booting into $target ..."
 # /sysroot will be the target filesystem dracut switches to.
 # If we have a pre-configured template layer, mount it to sysroot.
-if [ -e "$TEMPLATESDIR"/"$target".squashfs ] ; then
+if [ -e "$templatefile" ] ; then
 	i "Setting up live environment template ..."
 	# Mount the template layer, and make a overlay filesystem with the
 	# template on top of the boot target sysroot, and make it read-write
