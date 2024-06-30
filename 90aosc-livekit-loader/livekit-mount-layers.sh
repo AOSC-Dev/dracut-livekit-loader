@@ -266,7 +266,7 @@ if [ -e "$templatefile" ] ; then
 	# Mount the template layer, and make a overlay filesystem with the
 	# template on top of the boot target sysroot, and make it read-write
 	# by specifying an read-write upperdir.
-	mount -t squashfs -o "$SQUASHFSOPT" "$TEMPLATESDIR"/"$target".squashfs "$TEMPLATEMNTDIR"
+	mount -t squashfs -o "$SQUASHFSOPT" "$templatefile" "$TEMPLATEMNTDIR"
 	mount -t overlay live-sysroot:$target \
 		-o lowerdir="$TEMPLATEMNTDIR":"$SYSROOTSDIR"/$target,upperdir="$SYSROOT_UPPERDIR",workdir="$SYSROOT_WORKDIR",redirect_dir=on \
 		/sysroot
