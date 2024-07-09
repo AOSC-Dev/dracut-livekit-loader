@@ -204,6 +204,7 @@ BASESQUASHFS="$SQUASHFSDIR/base.squashfs"
 LAYERSDIR="$SQUASHFSDIR/layers"
 # Path containing template squashfses, also acted as layers.
 TEMPLATESDIR="$SQUASHFSDIR/templates"
+HOOKSDIR="$SQUASHFSDIR/hooks"
 # Where to mount the templte. Only one template can be mounted, since we
 # only boot into one target.
 TEMPLATEMNTDIR="$PREFIX/template"
@@ -286,10 +287,10 @@ var="TEMPLATE_${target/-/_}"
 tgt_template=${!var}
 templatefile=
 if [ -f "$TEMPLATESDIR/$tgt_template" ] ; then
-	i "Using supplied template file $tgt_template for boot target $tgt."
+	i "Using supplied template file $tgt_template for boot target $target."
 	templatefile="$TEMPLATESDIR/$tgt_template"
 else
-	i "Using default template file for boot target $tgt."
+	i "Using default template file for boot target $target."
 	templatefile="$TEMPLATESDIR/$target.squashfs"
 fi
 i "Booting into $target ..."
@@ -312,6 +313,13 @@ else
 	mount -t overlay live-sysroot:$target \
 		-o "$(gen_mount_opts $target live)" \
 		/sysroot
+fi
+
+if [ -e "$HOOKSDIR/$target.sh" ] ; then
+	i "Running hook script for $target ..."
+	source "$HOOKSDIR/$target.sh"
+else
+	i "No hooks detected for $target."
 fi
 
 i "Finishing up ..."
