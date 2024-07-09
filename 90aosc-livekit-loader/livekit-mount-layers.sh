@@ -97,10 +97,38 @@ get_squashfs_opt() {
 	echo $opt
 }
 
+# If a path exists in /proc/mounts
+# Unfortunately mount points containing white spaces does not work here.
+is_mounted() {
+	local path has_mount
+	path=$1
+	has_mount=0
+	if [ "x$path" = "x" ] ; then
+		return 1
+	fi
+	# A dirty trick, as using a while loop creates a subshell, which
+	# can't modify any variables.
+	has_mount=$( \
+	cat /proc/mounts | awk '{ print $2 }' | \
+	while read l ; do \
+		if [ "x$l" = "x$path" ] ; then \
+			echo 1 ; \
+			break ; \
+		fi ; \
+	done
+	)
+	if [ "x$has_mount" = "x1" ] ; then
+		return 0
+	else
+		return 1
+	fi
+}
+
 gen_mount_opts() {
 	# Generate lowerdirs according to layer dependencies
-	local tgt opts var arr lowerdirs
+	local tgt opts var arr lowerdirs typ
 	tgt=$1
+	typ=$2
 	opts=""
 	# SYSROOT_DEP_desktop=("base" "desktop-common" "desktop")
 	# SYSROOT_DEP_desktop_nvidia=("base" "desktop-common" "desktop" "desktop-nvidia")
@@ -118,8 +146,14 @@ gen_mount_opts() {
 	for layer in ${!var} ; do
 		lowerdirs="${LAYERSMNTDIR}/${layer}:${lowerdirs}"
 	done
+	if [ "x$typ" = "xlive" ] && is_mounted "$TEMPLATEMNTDIR" ; then
+		lowerdirs="$TEMPLATEMNTDIR:${lowerdirs}"
+	fi
 	lowerdirs=${lowerdirs%%:}
 	opts="${opts}${lowerdirs}"
+	if [ "x$typ" = "xlive" ] ; then
+		opts="${opts},upperdir=$SYSROOT_UPPERDIR,workdir=$SYSROOT_WORKDIR"
+	fi
 	opts="${opts},redirect_dir=on"
 	echo "$opts"
 }
@@ -268,7 +302,7 @@ if [ -e "$templatefile" ] ; then
 	# by specifying an read-write upperdir.
 	mount -t squashfs -o "$SQUASHFSOPT" "$templatefile" "$TEMPLATEMNTDIR"
 	mount -t overlay live-sysroot:$target \
-		-o lowerdir="$TEMPLATEMNTDIR":"$SYSROOTSDIR"/$target,upperdir="$SYSROOT_UPPERDIR",workdir="$SYSROOT_WORKDIR",redirect_dir=on \
+		-o "$(gen_mount_opts $target live)" \
 		/sysroot
 else
 	i "Mounting target sysroot to /sysroot without a template ..."
@@ -276,7 +310,7 @@ else
 	# the boot target sysroot (same as above, use a rw upperdir), then
 	# mount it to /sysroot.
 	mount -t overlay live-sysroot:$target \
-		-o lowerdir="$SYSROOTSDIR"/$target,upperdir="$SYSROOT_UPPERDIR",workdir="$SYSROOT_WORKDIR",redirect_dir=on \
+		-o "$(gen_mount_opts $target live)" \
 		/sysroot
 fi
 
