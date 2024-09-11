@@ -57,13 +57,14 @@ calc_tmpfs_size() {
 
 read_boot_target() {
 	# Read the boot target from kernel command line.
-	# The command line is:
-	# livekit.boot=target
+	# The command line parameter is:
+	# livekit.boot=TGT
 	# The target is one of the following:
 	# - livekit: boots to the LiveKit environment
 	# - desktop: boots to the desktop environment, allows users to try
 	#   AOSC OS before installing.
 	# - desktop-nvidia: same as above, but with NVIDIA graphics support.
+	# - Name of other defined sysroots.
 	# Base and server are not meant to be booted live. They must be
 	# correctly installed.
 	# This function can only be called after the sysroots are mounted.
@@ -158,6 +159,24 @@ gen_mount_opts() {
 	echo "$opts"
 }
 
+mount_squashfs() {
+	local src dst
+	src=$1
+	dst=$2
+	if [ "x$src" = "x" ] || \
+		[ "x$dst" = "x" ] ; then
+		die "Unable to mount: one of source, destination and options is missing."
+	fi
+	mount -t squashfs -o $SQUASHFSOPT $src $dst
+}
+
+mount_erofs() {
+	local src dst opt
+	src=$1
+	dst=$2
+	mount -t erofs $src $dst
+}
+
 i "Welcome to AOSC OS LiveKit!"
 
 i "Command arguments are:"
@@ -194,17 +213,11 @@ LIVEKIT_DEV="$1"
 PREFIX="/run/livekit"
 # Where LiveKit should be mounted.
 LIVEKIT_MNT="$PREFIX/livemnt"
+# Path to the config file.
+CFGDIR="$LIVEKIT_MNT/livekit"
+CFG="$CFGDIR/layers.conf"
 # Base layer mount path.
 BASE_MNT="$PREFIX/base"
-# Path containing layered squashfses.
-SQUASHFSDIR="$LIVEKIT_MNT/squashfs"
-# Path to the base layer.
-BASESQUASHFS="$SQUASHFSDIR/base.squashfs"
-# Where to contain the mountpoints of various layers.
-LAYERSDIR="$SQUASHFSDIR/layers"
-# Path containing template squashfses, also acted as layers.
-TEMPLATESDIR="$SQUASHFSDIR/templates"
-HOOKSDIR="$SQUASHFSDIR/hooks"
 # Where to mount the templte. Only one template can be mounted, since we
 # only boot into one target.
 TEMPLATEMNTDIR="$PREFIX/template"
@@ -226,7 +239,7 @@ SQUASHFSOPT="$(get_squashfs_opt)"
 # This tmpfs holds everything.
 i "Creating temporary filesystem ..."
 mkdir -p "$PREFIX"
-mount -t tmpfs -o "rw,size=$(calc_tmpfs_size)M,relatime" livekit $PREFIX || { w "Can not mount the tmpfs filesystem!" ; exit 1 ; }
+mount -t tmpfs -o "rw,size=$(calc_tmpfs_size)M,relatime" livekit $PREFIX || { die "Can not mount the tmpfs filesystem!" ; exit 1 ; }
 
 i "Creating directory structure ..."
 mkdir -p "$LIVEKIT_MNT"
@@ -243,10 +256,11 @@ i "Mounting LiveKit ..."
 mount -o ro "$LIVEKIT_DEV" "$LIVEKIT_MNT"
 
 i "Reading config files (if any) ..."
-if [ -e "$SQUASHFSDIR"/layers.conf ] ; then
-	source "$SQUASHFSDIR"/layers.conf
+if [ -e "$CFGDIR"/layers.conf ] ; then
+	source "$CFGDIR"/layers.conf
 else
 	w "No layers.conf detected. Using default configuration."
+	FSTYPE=squashfs
 	LAYERS=("desktop-common" "desktop" "desktop-nvidia" "livekit" "server")
 	SYSROOT_LAYERS=("desktop" "desktop-nvidia" "livekit" "server")
 	SYSROOT_DEP_desktop=("base" "desktop-common" "desktop")
@@ -255,9 +269,23 @@ else
 	SYSROOT_DEP_server=("base" "server")
 fi
 
+if [ "x$FSTYPE" = "x" ] ; then
+	die "FSTYPE is not defined. Make sure FSTYPE is set in the layers.conf."
+fi
+
+# Directory containing the filesystems (layers and templates).
+FSDIR="$LIVEKIT_MNT/$FSTYPE"
+# Path to the base layer.
+BASELAYER="$FSDIR/base.$FSTYPE"
+# Where to contain the mountpoints of various layers.
+LAYERSDIR="$FSDIR/layers"
+# Path containing template squashfses, also acted as layers.
+TEMPLATESDIR="$FSDIR/templates"
+HOOKSDIR="$CFGDIR/hooks"
+
 i "Mounting base sysroot ..."
-# Setup base squashfs.
-mount -t squashfs -o "$SQUASHFSOPT" "$BASESQUASHFS" "$LAYERSMNTDIR"/base
+# Setup base layer.
+"mount_$FSTYPE" "$BASELAYER" "$LAYERSMNTDIR"/base
 # Bind mount as a sysroot.
 mount --bind "$LAYERSMNTDIR"/base "$SYSROOTSDIR"/base
 
@@ -265,7 +293,7 @@ i "Mounting layers ..."
 for layer in ${LAYERS[@]} ; do
 	mkdir -p "$LAYERSMNTDIR"/"$layer"
 	# Mount the layer first.
-	mount -t squashfs -o "$SQUASHFSOPT" "$LAYERSDIR"/"$layer".squashfs "$LAYERSMNTDIR"/"$layer"
+	"mount_$FSTYPE" "$LAYERSDIR"/"$layer".$FSTYPE "$LAYERSMNTDIR"/"$layer"
 done
 
 i "Mounting sysroots ..."
@@ -291,7 +319,7 @@ if [ -f "$TEMPLATESDIR/$tgt_template" ] ; then
 	templatefile="$TEMPLATESDIR/$tgt_template"
 else
 	i "Using default template file for boot target $target."
-	templatefile="$TEMPLATESDIR/$target.squashfs"
+	templatefile="$TEMPLATESDIR/$target.$FSTYPE"
 fi
 i "Booting into $target ..."
 # /sysroot will be the target filesystem dracut switches to.
@@ -301,7 +329,7 @@ if [ -e "$templatefile" ] ; then
 	# Mount the template layer, and make a overlay filesystem with the
 	# template on top of the boot target sysroot, and make it read-write
 	# by specifying an read-write upperdir.
-	mount -t squashfs -o "$SQUASHFSOPT" "$templatefile" "$TEMPLATEMNTDIR"
+	"mount_$FSTYPE" "$templatefile" "$TEMPLATEMNTDIR"
 	mount -t overlay live-sysroot:$target \
 		-o "$(gen_mount_opts $target live)" \
 		/sysroot
