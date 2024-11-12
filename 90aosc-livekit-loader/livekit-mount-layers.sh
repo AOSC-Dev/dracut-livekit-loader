@@ -315,11 +315,15 @@ else
 		/sysroot
 fi
 
-if [ -e "$HOOKSDIR/$target.sh" ] ; then
-	i "Running hook script for $target ..."
-	source "$HOOKSDIR/$target.sh"
+export TARGET=$target
+
+if [ ! -z "$(ls -lA $HOOKSDIR)" ] ; then
+	i "Running hook script ..."
+	for script in $HOOKSDIR/*.sh ; do
+		source $script
+	done
 else
-	i "No hooks detected for $target."
+	i "No hooks detected."
 fi
 
 i "Finishing up ..."
