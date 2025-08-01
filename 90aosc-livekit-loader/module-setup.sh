@@ -16,6 +16,8 @@ install() {
 	inst_hook pre-udev 30 "$moddir"/aosc-livekit-gen-rules.sh
 	inst_script "$moddir"/livekit-mount-layers.sh /sbin/livekit-mount-layers
 	# Do we need initqueue?
+	# initqueue is required for the mounting script to work.
+	dracut_need_initqueue
 }
 
 installkernel() {
