@@ -174,6 +174,10 @@ mount_erofs() {
 	local src dst opt
 	src=$1
 	dst=$2
+	if [ "x$src" = "x" ] || \
+		[ "x$dst" = "x" ] ; then
+		die "Unable to mount: one of source, destination and options is missing."
+	fi
 	mount -t erofs $src $dst
 }
 
@@ -214,8 +218,7 @@ PREFIX="/run/livekit"
 # Where LiveKit should be mounted.
 LIVEKIT_MNT="$PREFIX/livemnt"
 # Path to the config file.
-CFGDIR="$LIVEKIT_MNT/livekit"
-CFG="$CFGDIR/layers.conf"
+LIVEKIT_DIR="$LIVEKIT_MNT/livekit"
 # Base layer mount path.
 BASE_MNT="$PREFIX/base"
 # Where to mount the templte. Only one template can be mounted, since we
@@ -256,10 +259,10 @@ i "Mounting LiveKit ..."
 mount -o ro "$LIVEKIT_DEV" "$LIVEKIT_MNT"
 
 i "Reading config files (if any) ..."
-if [ -e "$CFGDIR"/layers.conf ] ; then
-	source "$CFGDIR"/layers.conf
+if [ -e "$LIVEKIT_DIR"/livekit.conf ] ; then
+	source "$LIVEKIT_DIR"/livekit.conf
 else
-	w "No layers.conf detected. Using default configuration."
+	w "No livekit.conf detected. Using default configuration."
 	FSTYPE=squashfs
 	LAYERS=("desktop-common" "desktop" "desktop-nvidia" "livekit" "server")
 	SYSROOT_LAYERS=("desktop" "desktop-nvidia" "livekit" "server")
@@ -270,18 +273,28 @@ else
 fi
 
 if [ "x$FSTYPE" = "x" ] ; then
-	die "FSTYPE is not defined. Make sure FSTYPE is set in the layers.conf."
+	die "FSTYPE is not defined. Make sure FSTYPE is set in the livekit.conf."
 fi
 
-# Directory containing the filesystems (layers and templates).
-FSDIR="$LIVEKIT_MNT/$FSTYPE"
+# NOTE:
+# The directory structure is changed:
+# /
+#   + boot/
+#   + livekit/
+#     - base.FSTYPE
+#     + hooks/
+#     + layers/
+#       - various_layers.FSTYPE
+#     - livekit.conf
+#     + templates/
+
 # Path to the base layer.
-BASELAYER="$FSDIR/base.$FSTYPE"
+BASELAYER="$LIVEKIT_DIR/base.$FSTYPE"
 # Where to contain the mountpoints of various layers.
-LAYERSDIR="$FSDIR/layers"
+LAYERSDIR="$LIVEKIT_DIR/layers"
 # Path containing template squashfses, also acted as layers.
-TEMPLATESDIR="$FSDIR/templates"
-HOOKSDIR="$CFGDIR/hooks"
+TEMPLATESDIR="$LIVEKIT_DIR/templates"
+HOOKSDIR="$LIVEKIT_DIR/hooks"
 
 i "Mounting base sysroot ..."
 # Setup base layer.
