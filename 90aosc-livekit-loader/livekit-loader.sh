@@ -137,7 +137,7 @@ gen_mount_opts() {
 	# SYSROOT_DEP_server=("base" "server")
 	# like that.
 	# The layers must be mounted prior calling this function.
-	var="SYSROOT_DEP_${tgt/-/_}[@]"
+	var="SYSROOT_DEP_${tgt//-/_}[@]"
 	arr=(${!var})
 	if [ "${#arr[@]}" -lt "1" ] ; then
 		die "Missing layer configuration!"
@@ -324,7 +324,7 @@ i "Sysroots are set up successfully."
 # The allowed values are name of mounted sysroots.
 target=$(read_boot_target)
 # Allow the loader.conf to load custom template file.
-var="TEMPLATE_${target/-/_}"
+var="TEMPLATE_${target//-/_}"
 tgt_template=${!var}
 templatefile=
 if [ -f "$TEMPLATESDIR/$tgt_template" ] ; then
