@@ -1,6 +1,9 @@
 #!/bin/bash
 
 set -e
+# Work around the string length limit of fsconfig(2), which is 256 bytes.
+# The lowerdir= option will be longer than 256 characters!
+export LIBMOUNT_FORCE_MOUNT2=always
 
 # Prints warning, information and mount calls to kernel log and stdout
 mount() {
